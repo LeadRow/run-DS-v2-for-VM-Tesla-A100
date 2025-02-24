@@ -1,18 +1,13 @@
 import torch
 import sys
-from transformers import AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, GenerationConfig
 
-from deepseek_vl2.models import DeepseekVLV2Processor, DeepseekVLV2ForCausalLM
-from deepseek_vl2.utils.io import load_pil_images
+model_name = "deepseek-ai/DeepSeek-V2-Lite-Chat"
+tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+model = AutoModelForCausalLM.from_pretrained(model_name, trust_remote_code=True, torch_dtype=torch.bfloat16).cuda()
+model.generation_config = GenerationConfig.from_pretrained(model_name)
+model.generation_config.pad_token_id = model.generation_config.eos_token_id
 
-
-# specify the path to the model
-model_path = "deepseek-ai/deepseek-vl2-tiny"
-vl_chat_processor: DeepseekVLV2Processor = DeepseekVLV2Processor.from_pretrained(model_path)
-tokenizer = vl_chat_processor.tokenizer
-
-vl_gpt: DeepseekVLV2ForCausalLM = AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=True)
-vl_gpt = vl_gpt.to(torch.bfloat16).cuda().eval()
 
 run_key = True
 while run_key:
@@ -20,40 +15,12 @@ while run_key:
     data = sys.stdin.read()
     if data == "end":
         break
-
-    # multiple images/interleaved image-text
-    conversation = [
-        {
-            "role": "<|User|>",
-            "content": data,
-        },
-        {"role": "<|Assistant|>", "content": ""}
+    messages = [
+        {"role": "system", "content": "you are an assistant for converting data into rdf format Turtle; rdf Turtle should be as accurate as possible regarding the sent text"},
+        {"role": "user", "content": data}
     ]
+    input_tensor = tokenizer.apply_chat_template(messages, add_generation_prompt=True, return_tensors="pt")
+    outputs = model.generate(input_tensor.to(model.device), max_new_tokens=1000)
 
-    # # load images and prepare for inputs
-    # pil_images = load_pil_images(conversation)
-
-    prepare_inputs = vl_chat_processor(
-        conversations=conversation,
-        # images=pil_images,
-        force_batchify=True,
-        system_prompt="rdf turtle should be as accurate as possible regarding the sent text"
-    ).to(vl_gpt.device)
-
-    # run image encoder to get the image embeddings
-    inputs_embeds = vl_gpt.prepare_inputs_embeds(**prepare_inputs)
-
-    # run the model to get the response
-    outputs = vl_gpt.language.generate(
-        inputs_embeds=inputs_embeds,
-        attention_mask=prepare_inputs.attention_mask,
-        pad_token_id=tokenizer.eos_token_id,
-        bos_token_id=tokenizer.bos_token_id,
-        eos_token_id=tokenizer.eos_token_id,
-        max_new_tokens=1024,
-        do_sample=False,
-        use_cache=True
-    )
-
-    answer = tokenizer.decode(outputs[0].cpu().tolist(), skip_special_tokens=False)
-    print(answer)
+    result = tokenizer.decode(outputs[0][input_tensor.shape[1]:], skip_special_tokens=True)
+    print(result)
