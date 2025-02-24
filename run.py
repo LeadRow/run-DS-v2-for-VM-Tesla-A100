@@ -1,4 +1,5 @@
 import torch
+import sys
 from transformers import AutoModelForCausalLM
 
 from deepseek_vl2.models import DeepseekVLV2Processor, DeepseekVLV2ForCausalLM
@@ -13,45 +14,50 @@ tokenizer = vl_chat_processor.tokenizer
 vl_gpt: DeepseekVLV2ForCausalLM = AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=True)
 vl_gpt = vl_gpt.to(torch.bfloat16).cuda().eval()
 
-# multiple images/interleaved image-text
-conversation = [
-    {
-        "role": "<|User|>",
-        "content": "This is image_1: <image>\n"
-                   "This is image_2: <image>\n"
-                   "This is image_3: <image>\n Can you tell me what are in the images?",
-        "images": [
-            "images/multi_image_1.jpeg",
-            "images/multi_image_2.jpeg",
-            "images/multi_image_3.jpeg",
-        ],
-    },
-    {"role": "<|Assistant|>", "content": ""}
-]
+run_key = True
+while run_key:
+    print("Введите запрос. Для выхода из кода нажмите end")
+    data = sys.stdin.read()
+    if data == "end":
+        break
+    
+    # multiple images/interleaved image-text
+    conversation = [
+        {
+            "role": "<|System|>",
+            "content": "You are an assistant who creates rdf turtle based on the sent text",
+        },
+        {
+            "role": "<|User|>",
+            "content": data,
+        },
+        {"role": "<|Assistant|>", "content": ""}
+    ]
 
-# load images and prepare for inputs
-pil_images = load_pil_images(conversation)
-prepare_inputs = vl_chat_processor(
-    conversations=conversation,
-    images=pil_images,
-    force_batchify=True,
-    system_prompt=""
-).to(vl_gpt.device)
+    # # load images and prepare for inputs
+    # pil_images = load_pil_images(conversation)
 
-# run image encoder to get the image embeddings
-inputs_embeds = vl_gpt.prepare_inputs_embeds(**prepare_inputs)
+    prepare_inputs = vl_chat_processor(
+        conversations=conversation,
+        # images=pil_images,
+        force_batchify=True,
+        system_prompt="rdf turtle should be as accurate as possible regarding the sent text"
+    ).to(vl_gpt.device)
 
-# run the model to get the response
-outputs = vl_gpt.language.generate(
-    inputs_embeds=inputs_embeds,
-    attention_mask=prepare_inputs.attention_mask,
-    pad_token_id=tokenizer.eos_token_id,
-    bos_token_id=tokenizer.bos_token_id,
-    eos_token_id=tokenizer.eos_token_id,
-    max_new_tokens=512,
-    do_sample=False,
-    use_cache=True
-)
+    # run image encoder to get the image embeddings
+    inputs_embeds = vl_gpt.prepare_inputs_embeds(**prepare_inputs)
 
-answer = tokenizer.decode(outputs[0].cpu().tolist(), skip_special_tokens=False)
-print(f"{prepare_inputs['sft_format'][0]}", answer)
+    # run the model to get the response
+    outputs = vl_gpt.language.generate(
+        inputs_embeds=inputs_embeds,
+        attention_mask=prepare_inputs.attention_mask,
+        pad_token_id=tokenizer.eos_token_id,
+        bos_token_id=tokenizer.bos_token_id,
+        eos_token_id=tokenizer.eos_token_id,
+        max_new_tokens=1024,
+        do_sample=False,
+        use_cache=True
+    )
+
+    answer = tokenizer.decode(outputs[0].cpu().tolist(), skip_special_tokens=False)
+    print(answer)
