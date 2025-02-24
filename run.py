@@ -20,13 +20,9 @@ while run_key:
     data = sys.stdin.read()
     if data == "end":
         break
-    
+
     # multiple images/interleaved image-text
     conversation = [
-        {
-            "role": "<|System|>",
-            "content": "You are an assistant who creates rdf turtle based on the sent text",
-        },
         {
             "role": "<|User|>",
             "content": data,
